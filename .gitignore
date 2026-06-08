@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+webapp/node_modules/
+webapp/dist/
+
+# Data files (too large for git)
+sumo_sim/*.xml
+sumo_sim/*.osm
+!sumo_sim/osm.sumocfg
+!sumo_sim/vehicles.add.xml
+
+# Jupyter
+.ipynb_checkpoints/

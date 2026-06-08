@@ -1,0 +1,10 @@
+<configuration>
+    <input>
+        <net-file value="vienna.net.xml"/>
+        <route-files value="routes.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="7200"/>
+    </time>
+</configuration>

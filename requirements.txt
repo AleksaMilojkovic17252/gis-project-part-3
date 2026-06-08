@@ -1,0 +1,23 @@
+# Flask backend
+flask
+flask-cors
+psycopg2-binary
+rasterio
+fiona
+shapely
+numpy
+Pillow
+pyproj
+geoalchemy2
+sqlalchemy
+
+# Jupyter notebook
+jupyter
+geopandas
+movingpandas
+folium
+matplotlib
+pandas
+
+# SUMO FCD parser
+lxml

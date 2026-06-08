@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.leaflet-popup-content table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.leaflet-popup-content td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+}
