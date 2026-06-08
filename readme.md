@@ -111,7 +111,7 @@ Notebook sadrži prostorno-vremensku analizu SUMO podataka o kretanju vozila:
 - Grafik brzine vozila tokom vremena
 - Toplotna mapa gustine saobraćaja
 
-## Tehnološki stek
+## Tehnologije
 
 | Komponenta | Tehnologija |
 |---|---|
