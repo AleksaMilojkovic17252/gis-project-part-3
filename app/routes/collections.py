@@ -7,31 +7,30 @@ collections_bp = Blueprint("collections", __name__)
 @collections_bp.route("/collections")
 def list_collections():
     collections = [
-        {"name": "transit_stops",      "title": "Transit Stops",      "geometry": "Point"},
-        {"name": "transit_routes",     "title": "Transit Routes",     "geometry": "LineString"},
-        {"name": "roads",              "title": "Roads",              "geometry": "LineString"},
-        {"name": "power_towers",       "title": "Power Towers",       "geometry": "Point"},
-        {"name": "power_lines",        "title": "Power Lines",        "geometry": "LineString"},
-        {"name": "substations",        "title": "Substations",        "geometry": "Polygon"},
-        {"name": "landmarks_points",   "title": "Landmarks",          "geometry": "Point"},
-        {"name": "buildings",          "title": "Buildings",           "geometry": "Polygon"},
-        {"name": "vehicle_positions",  "title": "Vehicle Positions",   "geometry": "Point"},
+        {"name": "transit_stops",
+            "title": "Transit Stops",      "geometry": "Point"},
+        {"name": "transit_routes",     "title": "Transit Routes",
+            "geometry": "LineString"},
+        {"name": "roads",              "title": "Roads",
+            "geometry": "LineString"},
+        {"name": "power_towers",       "title": "Power Towers",
+            "geometry": "Point"},
+        {"name": "power_lines",        "title": "Power Lines",
+            "geometry": "LineString"},
+        {"name": "substations",        "title": "Substations",
+            "geometry": "Polygon"},
+        {"name": "landmarks_points",   "title": "Landmarks",
+            "geometry": "Point"},
+        {"name": "buildings",          "title": "Buildings",
+            "geometry": "Polygon"},
+        {"name": "vehicle_positions",
+            "title": "Vehicle Positions",   "geometry": "Point"},
     ]
     return jsonify(collections)
 
 
 @collections_bp.route("/collections/<table_name>/items")
 def get_features(table_name):
-    """
-    Fetch features from a PostGIS table as GeoJSON.
-    Supports query parameters:
-      - bbox: west,south,east,north
-      - limit: max features
-      - offset: pagination offset
-      - Any column name as a filter: e.g. ?stop_type=tram_stop
-      - gt_<column>=N : greater than
-      - lt_<column>=N : less than
-    """
     if not validate_table(table_name):
         return jsonify({"error": "Invalid collection"}), 404
 
@@ -41,13 +40,16 @@ def get_features(table_name):
 
     conditions = []
     params = []
+    bbox_values = None
 
     if bbox:
         parts = bbox.split(",")
         if len(parts) == 4:
-            west, south, east, north = [float(p) for p in parts]
-            conditions.append("geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)")
-            params.extend([west, south, east, north])
+            bbox_values = [float(p) for p in parts]
+            conditions.append(
+                "ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))"
+            )
+            params.extend(bbox_values)
 
     conn = get_db()
     try:
@@ -85,27 +87,32 @@ def get_features(table_name):
             row = cur.fetchone()
             id_col = row[0] if row else 'ctid'
 
+        if bbox_values:
+            geom_sql = "ST_AsGeoJSON(ST_Intersection(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326)))::json"
+            query_params = bbox_values + params + [limit, offset]
+        else:
+            geom_sql = "ST_AsGeoJSON(geom)::json"
+            query_params = params + [limit, offset]
+
         query = f"""
             SELECT json_build_object(
                 'type', 'Feature',
                 'id', {id_col},
-                'geometry', ST_AsGeoJSON(geom)::json,
+                'geometry', {geom_sql},
                 'properties', to_jsonb(t.*) - 'geom' - 'tags'
             )
             FROM {table_name} t
             {where_clause}
             LIMIT %s OFFSET %s
         """
-        params.extend([limit, offset])
 
         count_query = f"SELECT COUNT(*) FROM {table_name} t {where_clause}"
-        count_params = params[:-2]
 
         with conn.cursor() as cur:
-            cur.execute(count_query, count_params)
+            cur.execute(count_query, params)
             total = cur.fetchone()[0]
 
-            cur.execute(query, params)
+            cur.execute(query, query_params)
             features = [row[0] for row in cur.fetchall()]
     finally:
         conn.close()
@@ -133,7 +140,8 @@ def get_columns(table_name):
                 AND column_name NOT IN ('geom', 'tags', 'id')
                 ORDER BY ordinal_position
             """, (table_name,))
-            columns = [{"name": row[0], "type": row[1]} for row in cur.fetchall()]
+            columns = [{"name": row[0], "type": row[1]}
+                       for row in cur.fetchall()]
     finally:
         conn.close()
 

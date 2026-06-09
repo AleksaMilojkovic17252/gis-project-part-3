@@ -190,7 +190,7 @@ const TrajectoryLayer: React.FC = () => {
       style={() => style?.path ?? { color: "#ec4899", weight: 4 }}
       onEachFeature={(feature, layer) => {
         const container = document.createElement("div");
-        layer.bindPopup(container);
+        layer.bindPopup(container, {minWidth: 150});
         layer.on("popupopen", () => {
           createRoot(container).render(
             <FeaturePopup
