@@ -2,7 +2,6 @@ import xml.etree.ElementTree as ET
 import psycopg2
 from psycopg2.extras import execute_values
 
-# ── Database connection ──
 DB_CONFIG = {
     "dbname": "spatial_db_austria",
     "user": "aleksa",
@@ -15,7 +14,6 @@ FCD_FILE = "sumo_sim/fcd_output.xml"
 
 
 def create_table(conn):
-    """Create the vehicle_positions table if it doesn't exist."""
     with conn.cursor() as cur:
         cur.execute("DROP TABLE IF EXISTS vehicle_positions CASCADE;")
         cur.execute("""
@@ -39,12 +37,9 @@ def parse_and_insert(conn, fcd_file, batch_size=10000):
         batch = []
         total = 0
 
-        # Use iterparse for memory efficiency (FCD files can be large)
         for event, elem in ET.iterparse(fcd_file, events=("end",)):
             if elem.tag == "vehicle":
                 parent = elem  # vehicle element
-                # Get the timestep from the parent <timestep> element
-                # iterparse doesn't give parent directly, so we track it
 
             if elem.tag == "timestep":
                 timestamp = float(elem.get("time"))
@@ -73,10 +68,8 @@ def parse_and_insert(conn, fcd_file, batch_size=10000):
                         print(f"  Inserted {total} rows...")
                         batch = []
 
-                # Free memory — important for large files
                 elem.clear()
 
-        # Insert remaining rows
         if batch:
             insert_batch(cur, batch)
             total += len(batch)
@@ -99,7 +92,6 @@ def insert_batch(cur, batch):
 
 
 def create_indexes(conn):
-    """Create spatial and attribute indexes for fast queries."""
     with conn.cursor() as cur:
         cur.execute("CREATE INDEX idx_vp_geom ON vehicle_positions USING GIST (geom);")
         cur.execute("CREATE INDEX idx_vp_vehicle_id ON vehicle_positions (vehicle_id);")

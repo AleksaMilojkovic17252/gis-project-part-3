@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
-from app.db import get_db, validate_table
+from app.db import get_db, validate_table, get_table_columns
+from app.config import VIENNA_BBOX
 
 spatial_bp = Blueprint("spatial", __name__)
 
@@ -16,22 +17,22 @@ def spatial_within_distance():
     if not validate_table(table_a) or not validate_table(table_b):
         return jsonify({"error": "Invalid table"}), 400
 
-    b_condition = ""
-    b_params = []
-    if b_filter and ":" in b_filter:
-        col, val = b_filter.split(":", 1)
-        b_condition = f"AND b.{col} = %s"
-        b_params = [val]
+    conditions = ["a.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)"]
+    params = list(VIENNA_BBOX)
 
-    # Bbox filter on table_a
-    bbox_condition = ""
-    bbox_params = []
     if bbox:
         parts = bbox.split(",")
         if len(parts) == 4:
             west, south, east, north = [float(p) for p in parts]
-            bbox_condition = "AND a.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)"
-            bbox_params = [west, south, east, north]
+            conditions.append("a.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)")
+            params.extend([west, south, east, north])
+
+    if b_filter and ":" in b_filter:
+        col, val = b_filter.split(":", 1)
+        if col not in get_table_columns(table_b):
+            return jsonify({"error": "Invalid b_filter column"}), 400
+        conditions.append(f"b.{col} = %s")
+        params.append(val)
 
     conn = get_db()
     try:
@@ -45,6 +46,8 @@ def spatial_within_distance():
 
         a_name = "a.name" if table_a in tables_with_name else f"'{table_a}'"
         b_name = "b.name" if table_b in tables_with_name else f"'{table_b}'"
+
+        where_clause = " AND ".join(conditions)
 
         query = f"""
             SELECT json_build_object(
@@ -61,12 +64,12 @@ def spatial_within_distance():
             FROM {table_a} a
             JOIN {table_b} b
               ON ST_DWithin(a.geom::geography, b.geom::geography, %s)
-            WHERE TRUE {bbox_condition} {b_condition}
+            WHERE {where_clause}
             ORDER BY ST_Distance(a.geom::geography, b.geom::geography)
             LIMIT %s
         """
         with conn.cursor() as cur:
-            cur.execute(query, [distance] + bbox_params + b_params + [limit])
+            cur.execute(query, [distance] + params + [limit])
             features = [row[0] for row in cur.fetchall()]
     finally:
         conn.close()
@@ -79,13 +82,6 @@ def spatial_within_distance():
 
 @spatial_bp.route("/vehicles-near-object")
 def vehicles_near_object():
-    """
-    Query params:
-      - table: table containing the object (default: landmarks_points)
-      - object_name: name of the object to search near
-      - distance: meters (default 200)
-      - limit: max results (default 1000)
-    """
     table = request.args.get("table", "landmarks_points")
     object_name = request.args.get("object_name")
     distance = request.args.get("distance", 200, type=float)
@@ -115,13 +111,16 @@ def vehicles_near_object():
                 )
                 FROM vehicle_positions vp
                 CROSS JOIN (
-                    SELECT geom FROM {table} WHERE name = %s LIMIT 1
+                    SELECT geom FROM {table}
+                    WHERE name = %s
+                    AND ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
+                    LIMIT 1
                 ) obj
                 WHERE ST_DWithin(vp.geom::geography, obj.geom::geography, %s)
                 ORDER BY vp.timestamp
                 LIMIT %s
             """
-            cur.execute(query, [object_name, distance, limit])
+            cur.execute(query, [object_name, *VIENNA_BBOX, distance, limit])
             features = [row[0] for row in cur.fetchall()]
     finally:
         conn.close()

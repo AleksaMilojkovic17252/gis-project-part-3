@@ -18,7 +18,6 @@ raster_bp = Blueprint("raster", __name__)
 
 @raster_bp.route("/info")
 def raster_info():
-    """Return metadata about the DEM raster file."""
     try:
         with rasterio.open(RASTER_DEM_PATH) as src:
             bounds = src.bounds
@@ -75,7 +74,6 @@ def raster_value():
             else:
                 x, y = lon, lat
 
-            # Sample the raster at this point
             row, col = src.index(x, y)
             value = src.read(1)[row, col]
 

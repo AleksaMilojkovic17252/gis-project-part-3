@@ -6,6 +6,8 @@ DB_CONFIG = {
     "port": 5432,
 }
 
+VIENNA_BBOX = (16.18, 48.12, 16.58, 48.33)
+
 RASTER_DEM_PATH = "data/raster/vienna_dem.tif"
 RASTER_HILLSHADE_PATH = "data/raster/vienna_hh.tif"
 RASTER_COLOR_RELIEF_PATH = "data/raster/vienna_color-relief.tif"

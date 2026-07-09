@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from app.db import get_db, validate_table, get_table_columns
+from app.config import VIENNA_BBOX
 
 collections_bp = Blueprint("collections", __name__)
 
@@ -7,24 +8,15 @@ collections_bp = Blueprint("collections", __name__)
 @collections_bp.route("/collections")
 def list_collections():
     collections = [
-        {"name": "transit_stops",
-            "title": "Transit Stops",      "geometry": "Point"},
-        {"name": "transit_routes",     "title": "Transit Routes",
-            "geometry": "LineString"},
-        {"name": "roads",              "title": "Roads",
-            "geometry": "LineString"},
-        {"name": "power_towers",       "title": "Power Towers",
-            "geometry": "Point"},
-        {"name": "power_lines",        "title": "Power Lines",
-            "geometry": "LineString"},
-        {"name": "substations",        "title": "Substations",
-            "geometry": "Polygon"},
-        {"name": "landmarks_points",   "title": "Landmarks",
-            "geometry": "Point"},
-        {"name": "buildings",          "title": "Buildings",
-            "geometry": "Polygon"},
-        {"name": "vehicle_positions",
-            "title": "Vehicle Positions",   "geometry": "Point"},
+        {"name": "transit_stops", "title": "Transit Stops", "geometry": "Point"},
+        {"name": "transit_routes", "title": "Transit Routes", "geometry": "LineString"},
+        {"name": "roads", "title": "Roads", "geometry": "LineString"},
+        {"name": "power_towers", "title": "Power Towers", "geometry": "Point"},
+        {"name": "power_lines", "title": "Power Lines", "geometry": "LineString"},
+        {"name": "substations", "title": "Substations", "geometry": "Polygon"},
+        {"name": "landmarks_points", "title": "Landmarks", "geometry": "Point"},
+        {"name": "buildings", "title": "Buildings", "geometry": "Polygon"},
+        {"name": "vehicle_positions", "title": "Vehicle Positions", "geometry": "Point"},
     ]
     return jsonify(collections)
 
@@ -37,40 +29,49 @@ def get_features(table_name):
     bbox = request.args.get("bbox")
     limit = request.args.get("limit", 1000, type=int)
     offset = request.args.get("offset", 0, type=int)
+    simplify = request.args.get("simplify", 0, type=float)
 
-    conditions = []
-    params = []
+    conditions = [
+        "ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))"
+    ]
+    params = list(VIENNA_BBOX)
     bbox_values = None
 
-    if bbox:
-        parts = bbox.split(",")
-        if len(parts) == 4:
-            bbox_values = [float(p) for p in parts]
-            conditions.append(
-                "ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))"
-            )
-            params.extend(bbox_values)
+    try:
+        if bbox:
+            parts = bbox.split(",")
+            if len(parts) == 4:
+                bbox_values = [float(p) for p in parts]
+                conditions.append(
+                    "ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))"
+                )
+                params.extend(bbox_values)
+    except ValueError:
+        return jsonify({"error": "Invalid bbox"}), 400
 
     conn = get_db()
     try:
         valid_columns = get_table_columns(table_name)
 
         for key, value in request.args.items():
-            if key in valid_columns and key not in ("bbox", "limit", "offset"):
+            if key in valid_columns and key not in ("bbox", "limit", "offset", "simplify"):
                 conditions.append(f"{key} = %s")
                 params.append(value)
 
-        for key, value in request.args.items():
-            if key.startswith("gt_"):
-                col = key[3:]
-                if col in valid_columns:
-                    conditions.append(f"{col} > %s")
-                    params.append(float(value))
-            elif key.startswith("lt_"):
-                col = key[3:]
-                if col in valid_columns:
-                    conditions.append(f"{col} < %s")
-                    params.append(float(value))
+        try:
+            for key, value in request.args.items():
+                if key.startswith("gt_"):
+                    col = key[3:]
+                    if col in valid_columns:
+                        conditions.append(f"{col} > %s")
+                        params.append(float(value))
+                elif key.startswith("lt_"):
+                    col = key[3:]
+                    if col in valid_columns:
+                        conditions.append(f"{col} < %s")
+                        params.append(float(value))
+        except ValueError:
+            return jsonify({"error": "Invalid gt_/lt_ filter value"}), 400
 
         where_clause = ""
         if conditions:
@@ -88,11 +89,18 @@ def get_features(table_name):
             id_col = row[0] if row else 'ctid'
 
         if bbox_values:
-            geom_sql = "ST_AsGeoJSON(ST_Intersection(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326)))::json"
-            query_params = bbox_values + params + [limit, offset]
+            geom_expr = "ST_Intersection(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))"
+            geom_bind = list(bbox_values)
         else:
-            geom_sql = "ST_AsGeoJSON(geom)::json"
-            query_params = params + [limit, offset]
+            geom_expr = "geom"
+            geom_bind = []
+
+        if simplify > 0:
+            geom_expr = f"ST_SimplifyPreserveTopology({geom_expr}, %s)"
+            geom_bind.append(simplify)
+
+        geom_sql = f"ST_AsGeoJSON({geom_expr})::json"
+        query_params = geom_bind + params + [limit, offset]
 
         query = f"""
             SELECT json_build_object(
@@ -103,6 +111,7 @@ def get_features(table_name):
             )
             FROM {table_name} t
             {where_clause}
+            ORDER BY md5({id_col}::text)
             LIMIT %s OFFSET %s
         """
 
@@ -150,7 +159,6 @@ def get_columns(table_name):
 
 @collections_bp.route("/collections/<table_name>/distinct/<column_name>")
 def get_distinct_values(table_name, column_name):
-    """Return distinct values for a column (for dropdown filters)."""
     if not validate_table(table_name):
         return jsonify({"error": "Invalid collection"}), 404
 
@@ -160,6 +168,7 @@ def get_distinct_values(table_name, column_name):
             cur.execute("""
                 SELECT column_name FROM information_schema.columns
                 WHERE table_name = %s AND column_name = %s AND table_schema = 'public'
+                AND column_name NOT IN ('geom', 'tags')
             """, (table_name, column_name))
             if not cur.fetchone():
                 return jsonify({"error": "Invalid column"}), 404
@@ -168,9 +177,10 @@ def get_distinct_values(table_name, column_name):
                 SELECT DISTINCT {column_name}
                 FROM {table_name}
                 WHERE {column_name} IS NOT NULL
+                AND ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))
                 ORDER BY {column_name}
                 LIMIT 100
-            """)
+            """, VIENNA_BBOX)
             values = [row[0] for row in cur.fetchall()]
     finally:
         conn.close()
